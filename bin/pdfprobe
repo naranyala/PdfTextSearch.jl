@@ -1,0 +1,6 @@
+#!/usr/bin/env julia
+
+include(joinpath(@__DIR__, "..", "src", "PDFProbe.jl"))
+using .PDFProbe
+
+exit(PDFProbe.main())

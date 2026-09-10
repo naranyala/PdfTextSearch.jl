@@ -1,0 +1,6 @@
+# Local derived artifacts and scratch files
+derived/
+*.sqlite
+*.sqlite-*
+tmp/
+.julia/
