@@ -8,6 +8,8 @@ PDF bytes -> PDFReader -> PageRecord/Span -> JSONL artifacts -> SQLite/FTS5 -> Q
 
 `PDFReader.jl` is the only layer that knows about Poppler. The text model carries page identity, normalized and original text, character offsets, and optional boxes. `IndexStore.jl` treats SQLite as an acceleration layer; JSONL remains the inspectable source of derived evidence. `Query.jl` runs candidate retrieval against FTS5 and maps only returned pages back to spans for bounded evidence rendering.
 
+The current adapter boundary is intentionally pragmatic: PDF inspection and text extraction use Poppler command-line helpers, while indexing uses the `sqlite3` command-line client. Both boundaries are replaceable roadmap items; see [limitations.md](limitations.md) and [TODOS.md](../TODOS.md).
+
 The manifest is the freshness authority. It records source SHA-256, parser version, normalization rules, and index schema version. Index publication happens through a temporary database followed by a rename, and the manifest is marked fresh only after row-count validation.
 
 ## Requirements mapped to this slice
@@ -21,3 +23,5 @@ The manifest is the freshness authority. It records source SHA-256, parser versi
 ## Decision record
 
 The Poppler adapter is a pragmatic M0/M1 choice for an empty repository: it makes the vertical slice executable immediately and keeps the parser seam explicit. A native Julia parser can replace it after fixture-driven comparison without changing artifacts, the CLI, or the index schema.
+
+For command syntax, see [cli-reference.md](cli-reference.md). For the on-disk contract, see [artifact-schema.md](artifact-schema.md).

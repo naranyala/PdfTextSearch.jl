@@ -1,55 +1,47 @@
 # PDFProbe
 
-PDFProbe is a local-first Julia CLI for inspecting PDFs, producing stable page-aware artifacts, indexing them with SQLite/FTS5, and searching with evidence-backed results.
+PDFProbe is a local-first Julia CLI for inspecting PDFs, extracting deterministic text artifacts, indexing them with SQLite/FTS5, and returning evidence-backed search matches.
 
-This repository is the first vertical slice from the software requirements blueprint:
-
-1. `inspect` reports PDF metadata, text/image health, page details, and JSON.
-2. `extract` writes a versioned manifest, `pages.jsonl`, `spans.jsonl`, page text files, and a build report without changing the source PDF.
-3. `index` creates a reopenable SQLite/FTS5 index with freshness metadata.
-4. `search` performs word, phrase, AND-term, literal, regex, and page-filtered searches with snippets, offsets, and optional bounding boxes.
-
-The default reader is a deliberately isolated Poppler command-line adapter. This keeps the MVP runnable with the system tools already used for PDF diagnostics while leaving the reader boundary ready for a native Julia parser later.
-
-## Requirements
-
-- Julia 1.10 or newer
-- Poppler utilities: `pdfinfo`, `pdftotext`, and `pdfimages`
-- SQLite 3 with FTS5 support and the `sqlite3` command
-
-Run `pdfprobe doctor` to verify the environment.
+This repository contains the first vertical slice from the software requirements blueprint. It favors an explicit artifact contract and replaceable boundaries so native parsing, richer inspection, OCR, and a custom index can be added without changing the core workflow.
 
 ## Quick start
 
-From the repository root:
+Prerequisites are Julia 1.10+, Poppler (`pdfinfo`, `pdftotext`, `pdfimages`), and `sqlite3` with FTS5 support. Verify them with:
 
-```sh
-julia --project=. bin/pdfprobe inspect annual-report.pdf
+```bash
+julia --project=. bin/pdfprobe doctor
+```
+
+Then inspect, extract, index, and search:
+
+```bash
 julia --project=. bin/pdfprobe inspect annual-report.pdf --json > annual-report.inspect.json
 julia --project=. bin/pdfprobe extract annual-report.pdf --out derived/annual-report
 julia --project=. bin/pdfprobe index derived/annual-report
-julia --project=. bin/pdfprobe search derived/annual-report "supply chain resilience" --boxes
-julia --project=. bin/pdfprobe status derived/annual-report
+julia --project=. bin/pdfprobe search derived/annual-report '"supply chain resilience"' --boxes
+julia --project=. bin/pdfprobe status derived/annual-report --json
 ```
 
-Progress and diagnostics are kept off JSON stdout. No command mutates the source PDF. Existing derived output is refused unless `--force` is supplied; a forced extraction moves the previous directory to a recoverable `.previous-*` sibling.
+The inner double quotes in the search example request exact phrase semantics; the outer single quotes protect them from the shell. Use `extract --force` only when replacement is intentional. PDFProbe refuses to overwrite a non-empty derived directory by default and preserves a forced replacement as a timestamped `.previous-*` sibling.
+
+## Documentation
+
+The documentation set lives in [`docs/index.md`](docs/index.md):
+
+- [Installation and prerequisites](docs/installation.md)
+- [CLI reference](docs/cli-reference.md)
+- [Artifact and index schema](docs/artifact-schema.md)
+- [Architecture](docs/architecture.md)
+- [Development workflow](docs/development.md)
+- [Limitations and safety notes](docs/limitations.md)
+- [Requirements mapping](docs/requirements.md)
+- [Open implementation gaps](TODOS.md)
 
 ## Artifact contract
 
-An extraction directory contains:
+An extraction directory contains `manifest.json`, `inspect.json`, `pages.jsonl`, `spans.jsonl`, normalized `text/page-XXXX.txt` files, `assets/`, `index.sqlite`, and `build-report.json`. The [artifact schema](docs/artifact-schema.md) documents current fields, freshness states, offsets, and coordinate conventions.
 
-```text
-manifest.json       source hash, parser and normalization versions, build state
-inspect.json        structural and health report
-pages.jsonl         one record per selected source page, including empty pages
-spans.jsonl         normalized spans, offsets, original text, and optional boxes
-text/page-*.txt     convenience page text views
-assets/             reserved for unpacked resources
-index.sqlite        SQLite/FTS5 retrieval layer after `index`
-build-report.json   timings, counters, warnings, and failure state
-```
-
-Search JSON is a stable array of result objects. Offsets are 1-based character offsets with an exclusive `stop`; they refer to the normalized page text. Coordinates are in the PDF reader's point coordinate system when Poppler exposes them.
+Search results are stable JSON arrays when `--json` is supplied. Match offsets use 1-based character indexing with an exclusive `stop`; optional boxes use PDF point values from the current adapter.
 
 ## Public API
 
@@ -63,8 +55,16 @@ index_directory("derived/report")
 hits = search("derived/report", "supply chain resilience"; page=12, limit=20)
 ```
 
-## Scope and next steps
+## Development
 
-The blueprint intentionally leaves OCR providers, deep low-level object inspection, attachment/font unpacking, custom indexes, and packaged startup benchmarks behind explicit extension points. The MVP optimizes for deterministic text-native inspection, extraction, indexing, and search first.
+Run the repository test suite with:
 
-Stable exit codes are `0` success (including no hits), `2` usage/query error, `3` input/permission error, `4` parser/extraction failure, `5` stale/missing/corrupt index, and `10` unexpected internal error.
+```bash
+julia --project=. test/runtests.jl
+```
+
+The current slice intentionally leaves OCR, low-level object inspection, attachment/font unpacking, corpus search, richer query filters, packaged installation, and a custom mmap index incomplete. See [`TODOS.md`](TODOS.md) for the prioritized backlog and [`docs/limitations.md`](docs/limitations.md) for operational caveats.
+
+## Exit codes
+
+`0` success · `2` usage/argument error · `3` missing input/output · `4` external helper failure · `5` invalid/stale artifacts · `10` unexpected internal error.
