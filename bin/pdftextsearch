@@ -1,0 +1,8 @@
+#!/usr/bin/env julia
+
+# Keep the executable as a tiny adapter so the same implementation is available
+# to applications that call the package directly.
+include(joinpath(@__DIR__, "..", "src", "PdfTextSearch.jl"))
+using .PdfTextSearch
+
+exit(PdfTextSearch.main())

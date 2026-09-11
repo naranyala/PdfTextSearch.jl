@@ -3,7 +3,7 @@
 ## Invocation
 
 ```bash
-julia --project=. bin/pdfprobe <command> [options]
+julia --project=. bin/pdftextsearch <command> [options]
 ```
 
 The command writes diagnostics and human-readable summaries to stderr. Commands that support `--json` write machine-readable JSON to stdout.
@@ -15,7 +15,7 @@ The command writes diagnostics and human-readable summaries to stderr. Commands 
 Report PDF metadata and basic extraction health.
 
 ```bash
-julia --project=. bin/pdfprobe inspect <file.pdf> [--json] [--pages] [--objects]
+julia --project=. bin/pdftextsearch inspect <file.pdf> [--json] [--pages] [--objects]
 ```
 
 - `--json` emits an inspection object.
@@ -29,7 +29,7 @@ The inspection is best effort: metadata comes from `pdfinfo`, while text health 
 Create deterministic page and span artifacts from a PDF.
 
 ```bash
-julia --project=. bin/pdfprobe extract <file.pdf> --out <directory> [--pages A:B] [--force] [--json]
+julia --project=. bin/pdftextsearch extract <file.pdf> --out <directory> [--pages A:B] [--force] [--json]
 ```
 
 - `--out <directory>` is required.
@@ -44,7 +44,7 @@ Without `--pages`, all pages are selected. Extraction creates `manifest.json`, `
 Build or rebuild the local SQLite/FTS5 search index.
 
 ```bash
-julia --project=. bin/pdfprobe index <directory> [--force] [--json]
+julia --project=. bin/pdftextsearch index <directory> [--force] [--json]
 ```
 
 - The directory must contain extraction artifacts.
@@ -58,7 +58,7 @@ Successful indexing records the source hash and marks the manifest state `fresh`
 Search indexed page text and return evidence locations.
 
 ```bash
-julia --project=. bin/pdfprobe search <directory> <query> [options]
+julia --project=. bin/pdftextsearch search <directory> <query> [options]
 ```
 
 Supported options:
@@ -77,16 +77,16 @@ Query behavior:
 
 ```bash
 # Exact phrase; the shell preserves the inner quotes.
-julia --project=. bin/pdfprobe search derived/report '"supply chain resilience"'
+julia --project=. bin/pdftextsearch search derived/report '"supply chain resilience"'
 
 # Unquoted words are AND terms. All terms must be present on the same page.
-julia --project=. bin/pdfprobe search derived/report 'supply chain resilience'
+julia --project=. bin/pdftextsearch search derived/report 'supply chain resilience'
 
 # Literal text, useful for punctuation or symbols.
-julia --project=. bin/pdfprobe search derived/report 'C++' --literal
+julia --project=. bin/pdftextsearch search derived/report 'C++' --literal
 
 # A regular expression over normalized page text.
-julia --project=. bin/pdfprobe search derived/report 'supply\\s+chain' --regex
+julia --project=. bin/pdftextsearch search derived/report 'supply\\s+chain' --regex
 ```
 
 The MVP returns one result per matching page. Each result identifies the document, source path, page, match count, matched ranges, a context snippet, and optional boxes. Search is local to one extraction directory; corpus-wide search is planned.
@@ -96,7 +96,7 @@ The MVP returns one result per matching page. Each result identifies the documen
 Explain extraction and index freshness.
 
 ```bash
-julia --project=. bin/pdfprobe status <directory> [--json]
+julia --project=. bin/pdftextsearch status <directory> [--json]
 ```
 
 The status check compares the current source SHA-256 with the manifest and index metadata. A source change, missing index, or incomplete build makes the directory stale or incomplete.
@@ -106,7 +106,7 @@ The status check compares the current source SHA-256 with the manifest and index
 Export selected PDF assets.
 
 ```bash
-julia --project=. bin/pdfprobe unpack <file.pdf> --out <directory> [--what images,...]
+julia --project=. bin/pdftextsearch unpack <file.pdf> --out <directory> [--what images,...]
 ```
 
 The current implementation supports `images` through Poppler's `pdfimages`. Attachment, font, and other object-class extraction are reserved for future work. Unsupported selections produce a diagnostic rather than silently claiming success.
@@ -116,7 +116,7 @@ The current implementation supports `images` through Poppler's `pdfimages`. Atta
 Diagnose local setup and optional fixture availability.
 
 ```bash
-julia --project=. bin/pdfprobe doctor [--fixtures <directory>] [--json]
+julia --project=. bin/pdftextsearch doctor [--fixtures <directory>] [--json]
 ```
 
 ## Exit codes

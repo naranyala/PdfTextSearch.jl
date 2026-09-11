@@ -1,5 +1,7 @@
 using Dates
 
+ # Benchmark the warm search path against an already-built index. Extraction
+ # and indexing costs belong to separate measurements.
 """Run a small repeatable command-path benchmark over an existing derived index."""
 function benchmark_search(directory::AbstractString, queries::Vector{String})
     handle = open_index(directory)

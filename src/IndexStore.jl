@@ -1,5 +1,7 @@
 const SQLITE_BIN = "sqlite3"
 
+# SQL is kept behind these two helpers. Higher layers provide data and query
+# intent, while this module owns quoting, tool execution, and error mapping.
 function sql_quote(value)
     "'" * replace(string(value), "'" => "''") * "'"
 end
@@ -11,36 +13,36 @@ function ensure_sqlite(target::AbstractString)
         "required helper 'sqlite3' is not installed", recovery="install SQLite with FTS5 support and retry")
 end
 
-function sqlite_script(database::AbstractString, script::AbstractString; action="index", target=database)
+function sqlite_script(database::AbstractString, script::AbstractString; action="index", target=database,
+                       backend::IndexBackend=DEFAULT_INDEX_BACKEND)
+    backend isa SQLiteCLIBackend || error("unsupported index backend $(typeof(backend))")
     ensure_sqlite(target)
-    process = try
-        open(`$(SQLITE_BIN) -batch $(database)`, "w")
-    catch err
-        probe_error(EXIT_INDEX, action, target, "could not open SQLite database: $(sprint(showerror, err))")
-    end
-    try
-        write(process, script)
-        close(process)
-        wait(process)
-    catch err
-        try close(process) catch end
-        probe_error(EXIT_INDEX, action, target, "SQLite build failed: $(sprint(showerror, err))",
-                    recovery="check SQLite/FTS5 support and remove only the partial index")
-    end
+    result = run_tool(backend.runner, SQLITE_BIN, ["-batch", String(database)]; stdin=script)
+    result.timed_out && probe_error(EXIT_INDEX, action, target, "SQLite build exceeded the $(backend.runner.timeout)-second timeout",
+                                    recovery="retry with a smaller artifact or increase the configured tool timeout")
+    result.cancelled && probe_error(EXIT_INDEX, action, target, "SQLite build was cancelled", recovery="retry the operation")
+    success(result) || probe_error(EXIT_INDEX, action, target,
+        isempty(strip(result.stderr)) ? "SQLite build failed" : strip(result.stderr),
+        recovery="check SQLite/FTS5 support and remove only the partial index")
     nothing
 end
 
-function sqlite_json(database::AbstractString, query::AbstractString; action="search", target=database)
+function sqlite_json(database::AbstractString, query::AbstractString; action="search", target=database,
+                     backend::IndexBackend=DEFAULT_INDEX_BACKEND)
+    backend isa SQLiteCLIBackend || error("unsupported index backend $(typeof(backend))")
     ensure_sqlite(target)
-    output = try
-        read(`$(SQLITE_BIN) -json $(database) $(query)`, String)
-    catch err
-        probe_error(EXIT_INDEX, action, target, "SQLite query failed: $(sprint(showerror, err))",
-                    recovery="rebuild the derived index with pdfprobe index --force")
-    end
-    isempty(strip(output)) ? Any[] : parse_json(output)
+    result = run_tool(backend.runner, SQLITE_BIN, ["-json", String(database), String(query)])
+    result.timed_out && probe_error(EXIT_INDEX, action, target, "SQLite query exceeded the $(backend.runner.timeout)-second timeout",
+                                    recovery="retry with a smaller query or increase the configured tool timeout")
+    result.cancelled && probe_error(EXIT_INDEX, action, target, "SQLite query was cancelled", recovery="retry the operation")
+    success(result) || probe_error(EXIT_INDEX, action, target,
+        isempty(strip(result.stderr)) ? "SQLite query failed" : strip(result.stderr),
+        recovery="rebuild the derived index with pdftextsearch index --force")
+    isempty(strip(result.stdout)) ? Any[] : parse_json(result.stdout)
 end
 
+# The JSONL artifacts remain the inspectable source of truth; SQLite is a
+# rebuildable acceleration layer for candidate-page retrieval.
 const INDEX_SCHEMA_SQL = """
 PRAGMA journal_mode = DELETE;
 PRAGMA foreign_keys = ON;
@@ -113,7 +115,10 @@ function manifest_source(manifest::AbstractDict)
     source isa AbstractDict ? source : Dict{String,Any}()
 end
 
-function index_directory(directory::AbstractString; name="", force=false)
+function index_directory(directory::AbstractString; name="", force=false,
+                         backend::IndexBackend=DEFAULT_INDEX_BACKEND)
+    # Read the manifest/artifacts first, then build a sibling partial database.
+    # The final rename prevents an incomplete transaction from looking usable.
     directory = abspath(String(directory))
     isdir(directory) || probe_error(EXIT_INPUT, "index", directory, "derived directory does not exist", recovery="run extract first")
     manifest_path = joinpath(directory, "manifest.json")
@@ -124,7 +129,7 @@ function index_directory(directory::AbstractString; name="", force=false)
     pages_path = joinpath(directory, "pages.jsonl")
     isfile(pages_path) || probe_error(EXIT_INDEX, "index", directory, "pages.jsonl is missing", recovery="rerun extract")
     database = joinpath(directory, "index.sqlite")
-    current_status = isfile(database) ? index_status(directory) : Dict{String,Any}("fresh" => false)
+    current_status = isfile(database) ? index_status(directory; backend=backend) : Dict{String,Any}("fresh" => false)
     current_status["fresh"] === true && !force && return database
     isfile(database) && !force && probe_error(EXIT_INDEX, "index", directory, "existing index is stale or failed", recovery="pass --force to rebuild it")
 
@@ -135,7 +140,10 @@ function index_directory(directory::AbstractString; name="", force=false)
     source_hash = String(dict_get(source, "sha256", ""))
     document_id = String(dict_get(manifest, "document_id", "sha256:" * source_hash))
     source_path = String(dict_get(source, "path", ""))
-    config_hash = sha256_hex(json_string(dict_get(manifest, "normalization", Dict{String,Any}())))
+    config_hash = sha256_hex(json_string(Dict{String,Any}(
+        "normalization" => dict_get(manifest, "normalization", Dict{String,Any}()),
+        "extraction" => dict_get(manifest, "extraction", Dict{String,Any}()),
+    )))
     temporary = joinpath(directory, "index.sqlite.partial")
     isfile(temporary) && rm(temporary; force=true)
     started = time()
@@ -148,6 +156,7 @@ function index_directory(directory::AbstractString; name="", force=false)
         write(script, "INSERT OR REPLACE INTO meta(key,value) VALUES ('document_id',$(sql_quote(document_id)));\n")
         write(script, "INSERT OR REPLACE INTO meta(key,value) VALUES ('parser_version',$(sql_quote(PARSER_VERSION)));\n")
         write(script, "INSERT OR REPLACE INTO meta(key,value) VALUES ('normalization_version',$(sql_quote(NORMALIZATION_VERSION)));\n")
+        write(script, "INSERT OR REPLACE INTO meta(key,value) VALUES ('config_hash',$(sql_quote(config_hash)));\n")
         write(script, "INSERT OR REPLACE INTO meta(key,value) VALUES ('name',$(sql_quote(name)));\n")
         write(script, "INSERT OR REPLACE INTO documents(document_id,source_path,sha256,parser_version,config_hash,page_count) VALUES ($(sql_quote(document_id)),$(sql_quote(source_path)),$(sql_quote(source_hash)),$(sql_quote(PARSER_VERSION)),$(sql_quote(config_hash)),$(length(pages)));\n")
         for page in pages
@@ -173,8 +182,10 @@ function index_directory(directory::AbstractString; name="", force=false)
         end
         write(script, "INSERT INTO build_events(document_id,phase,started_at,duration_ms,counters_json,warnings_json) VALUES ($(sql_quote(document_id)),'index',$(sql_quote(string(Dates.now()))),$(round((time()-started)*1000; digits=3)),$(sql_quote(json_string(Dict("pages"=>length(pages),"spans"=>length(spans))))),'[]');\n")
         write(script, "COMMIT;\n")
-        sqlite_script(temporary, String(take!(script)); action="index", target=directory)
-        counts = sqlite_json(temporary, "SELECT (SELECT COUNT(*) FROM pages) AS pages, (SELECT COUNT(*) FROM fts_pages) AS indexed_pages, (SELECT COUNT(*) FROM spans) AS spans"; action="index", target=directory)
+        sqlite_script(temporary, String(take!(script)); action="index", target=directory, backend=backend)
+        # Validate the temporary database before publishing it or marking the
+        # manifest fresh; row counts catch truncated or partially indexed input.
+        counts = sqlite_json(temporary, "SELECT (SELECT COUNT(*) FROM pages) AS pages, (SELECT COUNT(*) FROM fts_pages) AS indexed_pages, (SELECT COUNT(*) FROM spans) AS spans"; action="index", target=directory, backend=backend)
         isempty(counts) && probe_error(EXIT_INDEX, "index", directory, "SQLite validation returned no counters")
         count_row = counts[1]
         Int(count_row["pages"]) == length(pages) || probe_error(EXIT_INDEX, "index", directory, "SQLite page count validation failed")
@@ -186,6 +197,7 @@ function index_directory(directory::AbstractString; name="", force=false)
         index_meta["schema_version"] = INDEX_SCHEMA_VERSION
         index_meta["state"] = "fresh"
         index_meta["database"] = "index.sqlite"
+        index_meta["config_hash"] = config_hash
         manifest["index"] = index_meta
         manifest["indexed_at"] = string(Dates.now())
         atomic_json_write(manifest_path, manifest)
@@ -216,7 +228,9 @@ function index_directory(directory::AbstractString; name="", force=false)
     end
 end
 
-function index_status(directory::AbstractString)
+function index_status(directory::AbstractString; backend::IndexBackend=DEFAULT_INDEX_BACKEND)
+    # Freshness is a conjunction: source bytes, extraction config, index schema,
+    # and manifest state must agree before search is allowed.
     directory = abspath(String(directory))
     manifest_path = joinpath(directory, "manifest.json")
     isfile(manifest_path) || probe_error(EXIT_INDEX, "status", directory, "manifest.json is missing", recovery="run extract first")
@@ -224,17 +238,24 @@ function index_status(directory::AbstractString)
     database = joinpath(directory, "index.sqlite")
     source = manifest_source(manifest)
     expected_hash = String(dict_get(source, "sha256", ""))
+    expected_config_hash = sha256_hex(json_string(Dict{String,Any}(
+        "normalization" => dict_get(manifest, "normalization", Dict{String,Any}()),
+        "extraction" => dict_get(manifest, "extraction", Dict{String,Any}()),
+    )))
     actual_hash = isfile(String(dict_get(source, "path", ""))) ? sha256_file(String(dict_get(source, "path", ""))) : ""
     meta = Any[]
     database_exists = isfile(database)
-    database_exists && (meta = sqlite_json(database, "SELECT key,value FROM meta"; action="status", target=directory))
+    database_exists && (meta = sqlite_json(database, "SELECT key,value FROM meta"; action="status", target=directory, backend=backend))
     meta_map = Dict{String,String}()
     for row in meta
         meta_map[String(row["key"])] = String(row["value"])
     end
     state = String(dict_get(manifest, "state", "unknown"))
-    fresh = database_exists && state == "fresh" && expected_hash == actual_hash && get(meta_map, "source_sha256", "") == expected_hash
-    reason = fresh ? "source and derived versions match" : !database_exists ? "index.sqlite is missing" : state != "fresh" ? "build state is $state" : expected_hash != actual_hash ? "source bytes changed" : "index metadata does not match manifest"
+    fresh = database_exists && state == "fresh" && expected_hash == actual_hash &&
+            get(meta_map, "source_sha256", "") == expected_hash &&
+            get(meta_map, "config_hash", "") == expected_config_hash &&
+            get(meta_map, "schema_version", "") == string(INDEX_SCHEMA_VERSION)
+    reason = fresh ? "source and derived versions match" : !database_exists ? "index.sqlite is missing" : state != "fresh" ? "build state is $state" : expected_hash != actual_hash ? "source bytes changed" : get(meta_map, "config_hash", "") != expected_config_hash ? "extraction configuration changed" : get(meta_map, "schema_version", "") != string(INDEX_SCHEMA_VERSION) ? "index schema is incompatible" : "index metadata does not match manifest"
     Dict{String,Any}(
         "schema_version" => ARTIFACT_SCHEMA_VERSION,
         "directory" => directory,
@@ -251,13 +272,13 @@ function index_status(directory::AbstractString)
     )
 end
 
-status(directory::AbstractString) = index_status(directory)
+status(directory::AbstractString; backend::IndexBackend=DEFAULT_INDEX_BACKEND) = index_status(directory; backend=backend)
 
-function open_index(path::AbstractString)
+function open_index(path::AbstractString; backend::IndexBackend=DEFAULT_INDEX_BACKEND)
     candidate = abspath(String(path))
     directory = isdir(candidate) ? candidate : dirname(candidate)
     database = isdir(candidate) ? joinpath(candidate, "index.sqlite") : candidate
-    state = index_status(directory)
-    state["fresh"] === true || probe_error(EXIT_INDEX, "search", directory, "index is not fresh ($(state["reason"]))", recovery="run pdfprobe index --force")
-    IndexHandle(directory, database, read_json(joinpath(directory, "manifest.json")))
+    state = index_status(directory; backend=backend)
+    state["fresh"] === true || probe_error(EXIT_INDEX, "search", directory, "index is not fresh ($(state["reason"]))", recovery="run pdftextsearch index --force")
+    IndexHandle(directory, database, read_json(joinpath(directory, "manifest.json")), backend)
 end

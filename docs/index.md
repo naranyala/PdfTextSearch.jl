@@ -1,6 +1,6 @@
-# PDFProbe documentation
+# PdfTextSearch.jl documentation
 
-PDFProbe is a local-first Julia command-line tool for inspecting PDF metadata, extracting deterministic text artifacts, building a searchable local index, and returning evidence-backed matches.
+PdfTextSearch.jl is a local-first Julia command-line tool for inspecting PDF metadata, extracting deterministic text artifacts, building a searchable local index, and returning evidence-backed matches.
 
 This documentation describes the current MVP in this repository. The implementation is intentionally explicit about the external tools it uses and the capabilities that remain on the roadmap.
 
@@ -9,6 +9,7 @@ This documentation describes the current MVP in this repository. The implementat
 - [Installation and prerequisites](installation.md)
 - [CLI reference](cli-reference.md)
 - [Artifact and index schema](artifact-schema.md)
+- [Embedded API contract](api-contract.md)
 - [Architecture](architecture.md)
 - [Development workflow](development.md)
 - [Limitations and safety notes](limitations.md)
@@ -30,7 +31,7 @@ The extraction directory is the durable boundary between PDF processing and sear
 
 ## Current contract
 
-- Commands are run from the checkout with `julia --project=. bin/pdfprobe ...`.
+- Commands are run from the checkout with `julia --project=. bin/pdftextsearch ...`.
 - Human-readable diagnostics go to stderr; machine-readable results go to stdout where a command supports `--json`.
 - Existing non-empty extraction directories are not overwritten unless `--force` is supplied.
 - Search offsets are 1-based character positions with an exclusive `stop` value.

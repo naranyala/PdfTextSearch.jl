@@ -1,0 +1,14 @@
+name = "PdfTextSearchDownstream"
+uuid = "7d3b9e3a-7c3d-4b0a-9cf2-9dbb46fb1b6a"
+authors = ["PdfTextSearch contributors"]
+version = "0.1.0"
+
+[deps]
+PdfTextSearch = "8d4d2c7f-5f1a-4c1c-9d5f-0c6f8a3bbf45"
+
+[sources]
+PdfTextSearch = {path = "../.."}
+
+[compat]
+julia = "1.10"
+PdfTextSearch = "0.1"

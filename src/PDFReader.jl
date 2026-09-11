@@ -1,14 +1,19 @@
 using SHA
 
+# This is the only parser-specific layer. The rest of the package consumes
+# PageRecord/Span values and does not depend on Poppler's output formats.
 const PDFINFO_BIN = "pdfinfo"
 const PDFTEXT_BIN = "pdftotext"
 const PDFIMAGES_BIN = "pdfimages"
+const PDF_TOOL_RUNNER = ToolRunner(timeout=60.0)
 
 function executable_available(name::AbstractString)
-    Sys.which(name) !== nothing
+    tool_available(name)
 end
 
 function ensure_pdf_path(path::AbstractString; action="inspect")
+    # Validate the signature before starting an external helper so errors are
+    # reported as input problems rather than opaque parser failures.
     source = abspath(String(path))
     isfile(source) || probe_error(EXIT_INPUT, action, source, "file does not exist", recovery="check the path and permissions")
     readable = try
@@ -33,14 +38,20 @@ function sha256_file(path::AbstractString)
 end
 
 function run_pdf_command(binary::AbstractString, args::Vector{String}, action::AbstractString, target::AbstractString)
+    # All helper calls share one boundary so timeout, cancellation, and stderr
+    # handling stay consistent across inspection, extraction, and image counts.
     executable_available(binary) || probe_error(EXIT_INTERNAL, action, target,
         "required helper '$binary' is not installed", recovery="install Poppler utilities and retry")
-    try
-        read(Cmd([binary; args]), String)
-    catch err
-        message = err isa ProcessFailedException ? "PDF helper '$binary' could not process the file" : sprint(showerror, err)
-        probe_error(EXIT_PARSE, action, target, message, recovery="retry in tolerant mode or inspect the PDF with another reader")
-    end
+    result = run_tool(PDF_TOOL_RUNNER, binary, args)
+    result.timed_out && probe_error(EXIT_PARSE, action, target,
+        "PDF helper '$binary' exceeded the $(PDF_TOOL_RUNNER.timeout)-second timeout",
+        recovery="retry with a smaller document or increase the configured tool timeout")
+    result.cancelled && probe_error(EXIT_PARSE, action, target,
+        "PDF helper '$binary' was cancelled", recovery="retry the operation")
+    success(result) || probe_error(EXIT_PARSE, action, target,
+        isempty(strip(result.stderr)) ? "PDF helper '$binary' could not process the file" : strip(result.stderr),
+        recovery="retry in tolerant mode or inspect the PDF with another reader")
+    result.stdout
 end
 
 function pdfinfo(source::AbstractString)
@@ -72,6 +83,7 @@ function pdf_page_texts(source::AbstractString, page_count::Int)
     output = run_pdf_command(PDFTEXT_BIN, ["-layout", source, "-"], "extract", source)
     chunks = split(output, '\f'; keepempty=true)
     # pdftotext conventionally leaves a trailing form-feed after the last page.
+    # Trim it, then pad defensively so page identity is never shifted.
     length(chunks) > page_count && (chunks = chunks[1:page_count])
     while length(chunks) < page_count
         push!(chunks, "")
@@ -86,12 +98,13 @@ function image_counts(source::AbstractString, page_count::Int)
         push!(warnings, "image_count_unavailable: pdfimages is not installed")
         return counts, warnings
     end
-    output = try
-        read(`$(PDFIMAGES_BIN) -list $(source)`, String)
-    catch
-        push!(warnings, "image_count_unavailable: pdfimages could not inspect the file")
+    result = run_tool(PDF_TOOL_RUNNER, PDFIMAGES_BIN, ["-list", source])
+    if !success(result)
+        reason = result.timed_out ? "timed out" : result.cancelled ? "was cancelled" : "could not inspect the file"
+        push!(warnings, "image_count_unavailable: pdfimages $reason")
         return counts, warnings
     end
+    output = result.stdout
     data_started = false
     for line in split(output, '\n')
         stripped = strip(line)
@@ -130,6 +143,8 @@ function bbox_from_attributes(tag::AbstractString)
 end
 
 function bbox_pages(source::AbstractString, page_count::Int)
+    # `-bbox-layout` gives word-level geometry and line order; it is best effort
+    # because some valid PDFs expose text but no usable bounding boxes.
     output = run_pdf_command(PDFTEXT_BIN, ["-bbox-layout", source, "-"], "extract", source)
     parsed = NamedTuple[]
     page_matches = eachmatch(r"<page\b[^>]*>.*?</page>"s, output)
@@ -162,6 +177,8 @@ function bbox_pages(source::AbstractString, page_count::Int)
 end
 
 function build_page_text(words, page_number::Int; include_boxes=true)
+    # Build two parallel character streams: normalized text for search and the
+    # adapter's original text for audit/provenance. Span ranges refer to both.
     chars = Char[]
     original_chars = Char[]
     spans = Span[]
@@ -176,6 +193,8 @@ function build_page_text(words, page_number::Int; include_boxes=true)
             joined = endswith(previous_normalized, "-") && word.line > previous_word.line &&
                      isletter(first(normalized))
             if joined
+                # A layout line break after a trailing hyphen represents one
+                # logical word; remove the hyphen from text and its span range.
                 pop!(chars)
                 pop!(original_chars)
                 if previous_span_index > 0
@@ -183,7 +202,8 @@ function build_page_text(words, page_number::Int; include_boxes=true)
                     prior_chars = char_vector(prior.text)
                     shortened = length(prior_chars) > 1 ? String(prior_chars[1:end-1]) : ""
                     spans[previous_span_index] = Span(prior.span_id, prior.page_number, prior.start,
-                        prior.stop - 1, shortened, prior.original_text, prior.bbox)
+                        prior.stop - 1, prior.original_start, prior.original_stop - 1,
+                        shortened, prior.original_text, prior.bbox)
                 end
             else
                 push!(chars, ' ')
@@ -191,11 +211,14 @@ function build_page_text(words, page_number::Int; include_boxes=true)
             end
         end
         start = length(chars) + 1
+        original_start = length(original_chars) + 1
         append!(chars, char_vector(normalized))
         append!(original_chars, char_vector(word.text))
         stop = length(chars) + 1
+        original_stop = length(original_chars) + 1
         box = include_boxes ? word.bbox : nothing
-        push!(spans, Span(length(spans) + 1, page_number, start, stop, normalized, word.text, box))
+        push!(spans, Span(length(spans) + 1, page_number, start, stop, original_start,
+                          original_stop, normalized, word.text, box))
         previous_span_index = length(spans)
         previous_word = word
     end
@@ -204,9 +227,15 @@ end
 
 function fallback_page(page_text::AbstractString, page_number::Int, width::Float64, height::Float64,
                        document_id::String, image_count::Int; include_boxes=true)
-    normalized = normalize_text(page_text)
+    # Fallback preserves searchable text when word-level XML parsing fails, but
+    # deliberately reports no geometry rather than inventing coordinates.
+    mapped = normalize_with_map(page_text)
+    normalized = mapped.text
+    original_start = isempty(mapped.mapping) ? 1 : first(mapped.mapping[1])
+    original_stop = isempty(mapped.mapping) ? 1 : last(mapped.mapping[end]) + 1
     spans = isempty(normalized) ? Span[] : [Span(1, page_number, 1, length(char_vector(normalized)) + 1,
-                                                  normalized, String(page_text), nothing)]
+                                                  original_start, original_stop, normalized,
+                                                  String(page_text), nothing)]
     PageRecord(document_id, page_number, width, height, 0, normalized, String(page_text),
                sha256_hex(normalized), spans, image_count, 0, "fallback", String[])
 end
@@ -227,6 +256,8 @@ function extract_pages(source::AbstractString; pages=nothing, include_boxes=true
     document_id = "sha256:" * sha256_file(source)
     warnings = String[]
     append!(warnings, image_warnings)
+    # Geometry failure is recoverable in tolerant mode: text extraction still
+    # produces a useful, explicitly lower-fidelity artifact.
     parsed = try
         bbox_pages(source, page_count)
     catch err

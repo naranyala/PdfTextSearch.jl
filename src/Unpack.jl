@@ -1,4 +1,6 @@
 function safe_unpack_target(path::AbstractString, force::Bool)
+    # Asset export has its own overwrite policy because it writes files directly
+    # rather than publishing one atomic artifact directory.
     target = abspath(String(path))
     if ispath(target)
         isdir(target) || probe_error(EXIT_INPUT, "unpack", target, "output path is not a directory", recovery="choose a directory path")
@@ -20,14 +22,16 @@ function unpack_pdf(source_path::AbstractString; what=["images"], output, force=
         "assets" => Any[],
         "warnings" => Any[],
     )
+    # Unsupported resource classes are recorded as warnings instead of silently
+    # pretending they were exported.
     if "images" in requested
         executable_available(PDFIMAGES_BIN) || push!(manifest["warnings"], "images_unavailable: pdfimages is not installed")
         if executable_available(PDFIMAGES_BIN)
             prefix = joinpath(target, "image")
-            try
-                run(`$(PDFIMAGES_BIN) -png -j $(source) $(prefix)`)
-            catch err
-                push!(manifest["warnings"], "images_failed: $(sprint(showerror, err))")
+            result = run_tool(PDF_TOOL_RUNNER, PDFIMAGES_BIN, ["-png", "-j", source, prefix])
+            if !success(result)
+                reason = result.timed_out ? "timed out" : result.cancelled ? "was cancelled" : isempty(strip(result.stderr)) ? "failed" : strip(result.stderr)
+                push!(manifest["warnings"], "images_failed: $reason")
             end
             for path in sort!(filter(isfile, readdir(target; join=true)))
                 basename(path) == "unpack-manifest.json" && continue
@@ -47,6 +51,8 @@ function unpack_pdf(source_path::AbstractString; what=["images"], output, force=
 end
 
 function doctor_report(; fixtures=nothing)
+    # Doctor reports environment capability, including the FTS5 feature that
+    # indexing actually requires—not just whether sqlite3 is on PATH.
     checks = Any[]
     for (name, description) in (("julia", "Julia runtime"), (PDFINFO_BIN, "PDF metadata reader"),
                                 (PDFTEXT_BIN, "PDF text reader"), (PDFIMAGES_BIN, "PDF image inspector"),
@@ -59,8 +65,8 @@ function doctor_report(; fixtures=nothing)
     if executable_available(SQLITE_BIN)
         database = tempname()
         try
-            sqlite_script(database, "CREATE VIRTUAL TABLE probe USING fts5(text); INSERT INTO probe VALUES ('phrase search');"; action="doctor", target="SQLite")
-            sqlite_fts5 = !isempty(sqlite_json(database, "SELECT rowid FROM probe WHERE probe MATCH 'phrase'"; action="doctor", target="SQLite"))
+            sqlite_script(database, "CREATE VIRTUAL TABLE probe USING fts5(text); INSERT INTO probe VALUES ('phrase search');"; action="doctor", target="SQLite", backend=DEFAULT_INDEX_BACKEND)
+            sqlite_fts5 = !isempty(sqlite_json(database, "SELECT rowid FROM probe WHERE probe MATCH 'phrase'"; action="doctor", target="SQLite", backend=DEFAULT_INDEX_BACKEND))
         catch
             sqlite_fts5 = false
         end

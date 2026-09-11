@@ -1,6 +1,6 @@
-# PDFProbe
+# PdfTextSearch.jl
 
-PDFProbe is a local-first Julia CLI for inspecting PDFs, extracting deterministic text artifacts, indexing them with SQLite/FTS5, and returning evidence-backed search matches.
+PdfTextSearch.jl is a local-first Julia CLI for inspecting PDFs, extracting deterministic text artifacts, indexing them with SQLite/FTS5, and returning evidence-backed search matches.
 
 This repository contains the first vertical slice from the software requirements blueprint. It favors an explicit artifact contract and replaceable boundaries so native parsing, richer inspection, OCR, and a custom index can be added without changing the core workflow.
 
@@ -9,20 +9,20 @@ This repository contains the first vertical slice from the software requirements
 Prerequisites are Julia 1.10+, Poppler (`pdfinfo`, `pdftotext`, `pdfimages`), and `sqlite3` with FTS5 support. Verify them with:
 
 ```bash
-julia --project=. bin/pdfprobe doctor
+julia --project=. bin/pdftextsearch doctor
 ```
 
 Then inspect, extract, index, and search:
 
 ```bash
-julia --project=. bin/pdfprobe inspect annual-report.pdf --json > annual-report.inspect.json
-julia --project=. bin/pdfprobe extract annual-report.pdf --out derived/annual-report
-julia --project=. bin/pdfprobe index derived/annual-report
-julia --project=. bin/pdfprobe search derived/annual-report '"supply chain resilience"' --boxes
-julia --project=. bin/pdfprobe status derived/annual-report --json
+julia --project=. bin/pdftextsearch inspect annual-report.pdf --json > annual-report.inspect.json
+julia --project=. bin/pdftextsearch extract annual-report.pdf --out derived/annual-report
+julia --project=. bin/pdftextsearch index derived/annual-report
+julia --project=. bin/pdftextsearch search derived/annual-report '"supply chain resilience"' --boxes
+julia --project=. bin/pdftextsearch status derived/annual-report --json
 ```
 
-The inner double quotes in the search example request exact phrase semantics; the outer single quotes protect them from the shell. Use `extract --force` only when replacement is intentional. PDFProbe refuses to overwrite a non-empty derived directory by default and preserves a forced replacement as a timestamped `.previous-*` sibling.
+The inner double quotes in the search example request exact phrase semantics; the outer single quotes protect them from the shell. Use `extract --force` only when replacement is intentional. PdfTextSearch.jl refuses to overwrite a non-empty derived directory by default and preserves a forced replacement as a timestamped `.previous-*` sibling.
 
 ## Documentation
 
@@ -31,6 +31,7 @@ The documentation set lives in [`docs/index.md`](docs/index.md):
 - [Installation and prerequisites](docs/installation.md)
 - [CLI reference](docs/cli-reference.md)
 - [Artifact and index schema](docs/artifact-schema.md)
+- [Embedded API contract](docs/api-contract.md)
 - [Architecture](docs/architecture.md)
 - [Development workflow](docs/development.md)
 - [Limitations and safety notes](docs/limitations.md)
@@ -46,7 +47,7 @@ Search results are stable JSON arrays when `--json` is supplied. Match offsets u
 ## Public API
 
 ```julia
-using PDFProbe
+using PdfTextSearch
 
 report = inspect_pdf("annual-report.pdf")
 plan = ExtractionPlan(output="derived/report", include_boxes=true)
@@ -54,6 +55,9 @@ extract_pdf("annual-report.pdf", plan)
 index_directory("derived/report")
 hits = search("derived/report", "supply chain resilience"; page=12, limit=20)
 ```
+
+For embedding in another Julia application, see the [API contract](docs/api-contract.md)
+and the runnable [`examples/embed.jl`](examples/embed.jl) sequence.
 
 ## Development
 

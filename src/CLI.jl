@@ -3,6 +3,8 @@ const BOOLEAN_OPTIONS = Set(["json", "pages", "objects", "fonts", "images", "str
                             "literal", "case-sensitive", "regex", "boxes", "explain", "quiet", "verbose", "help"])
 
 function cli_options(arguments::Vector{String})
+    # Keep option parsing dependency-free and deterministic; command handlers
+    # perform type/range validation once the option context is known.
     positionals = String[]
     options = Dict{Symbol,Any}()
     index = 1
@@ -25,7 +27,7 @@ function cli_options(arguments::Vector{String})
             raw, nothing
         end
         key in VALUE_OPTIONS || key in BOOLEAN_OPTIONS ||
-            probe_error(EXIT_USAGE, "cli", key, "unknown option", recovery="run pdfprobe --help")
+            probe_error(EXIT_USAGE, "cli", key, "unknown option", recovery="run pdftextsearch --help")
         symbol = Symbol(replace(key, '-' => '_'))
         if value === nothing && key == "pages" &&
            (index == length(arguments) || startswith(arguments[index + 1], "--"))
@@ -68,9 +70,9 @@ function cli_page_range(options::AbstractDict)
 end
 
 function print_help(io::IO=stdout)
-    println(io, "pdfprobe 0.1.0 - inspect, dismantle, and search PDF files")
+    println(io, "pdftextsearch $(package_version()) - inspect, dismantle, and search PDF files")
     println(io)
-    println(io, "Usage: pdfprobe <command> [options]")
+    println(io, "Usage: pdftextsearch <command> [options]")
     println(io)
     println(io, "Commands:")
     println(io, "  inspect <file.pdf> [--json] [--pages] [--objects]   Report metadata and health")
@@ -82,10 +84,10 @@ function print_help(io::IO=stdout)
     println(io, "  doctor [--fixtures <dir>]                           Diagnose the local setup")
     println(io)
     println(io, "Examples:")
-    println(io, "  pdfprobe inspect annual-report.pdf --json")
-    println(io, "  pdfprobe extract annual-report.pdf --out derived/report")
-    println(io, "  pdfprobe index derived/report")
-    println(io, "  pdfprobe search derived/report \"supply chain resilience\" --context 80")
+    println(io, "  pdftextsearch inspect annual-report.pdf --json")
+    println(io, "  pdftextsearch extract annual-report.pdf --out derived/report")
+    println(io, "  pdftextsearch index derived/report")
+    println(io, "  pdftextsearch search derived/report \"supply chain resilience\" --context 80")
     println(io)
     println(io, "Machine-readable output is written to stdout; diagnostics belong on stderr.")
 end
@@ -116,8 +118,10 @@ function human_search(hits, elapsed_ms, directory)
 end
 
 function dispatch_cli(command::String, positional::Vector{String}, options::Dict{Symbol,Any})
+    # Dispatch is deliberately thin: business logic remains callable from Julia
+    # and the CLI only translates arguments, output formats, and exit codes.
     if command == "inspect"
-        length(positional) == 1 || probe_error(EXIT_USAGE, "inspect", "", "expected exactly one PDF path", recovery="run pdfprobe inspect --help")
+        length(positional) == 1 || probe_error(EXIT_USAGE, "inspect", "", "expected exactly one PDF path", recovery="run pdftextsearch inspect --help")
         report = inspect_pdf(positional[1]; include_pages=get(options, :pages, false), include_objects=get(options, :objects, false),
                              include_fonts=get(options, :fonts, false), include_images=get(options, :images, false), strict=get(options, :strict, false))
         get(options, :json, false) ? println(json_string(report)) : human_inspect(report)
@@ -133,7 +137,7 @@ function dispatch_cli(command::String, positional::Vector{String}, options::Dict
             println(json_string(read_json(joinpath(directory, "manifest.json"))))
         else
             println("extracted $(directory)")
-            println("  next: pdfprobe index $(directory)")
+            println("  next: pdftextsearch index $(directory)")
         end
         return EXIT_SUCCESS
     elseif command == "index"
@@ -178,10 +182,12 @@ function dispatch_cli(command::String, positional::Vector{String}, options::Dict
         end
         return Bool(report["ok"]) ? EXIT_SUCCESS : EXIT_INPUT
     end
-    probe_error(EXIT_USAGE, "cli", command, "unknown command", recovery="run pdfprobe --help")
+    probe_error(EXIT_USAGE, "cli", command, "unknown command", recovery="run pdftextsearch --help")
 end
 
 function main(arguments=ARGS)
+    # Every expected library error becomes a stable exit code; unexpected errors
+    # remain visible on stderr without contaminating machine-readable stdout.
     try
         raw = String.(arguments)
         if isempty(raw) || "--help" in raw || "-h" in raw
@@ -189,18 +195,18 @@ function main(arguments=ARGS)
             return isempty(raw) ? EXIT_USAGE : EXIT_SUCCESS
         end
         if raw == ["--version"]
-            println("0.1.0")
+            println(package_version())
             return EXIT_SUCCESS
         end
         command = raw[1]
         positional, options = cli_options(raw[2:end])
         dispatch_cli(command, positional, options)
     catch err
-        if err isa PDFProbeError
-            println(stderr, "pdfprobe: ", sprint(showerror, err))
+        if err isa PdfTextSearchError
+            println(stderr, "pdftextsearch: ", sprint(showerror, err))
             return err.code
         end
-        println(stderr, "pdfprobe: unexpected internal error: ", sprint(showerror, err))
+        println(stderr, "pdftextsearch: unexpected internal error: ", sprint(showerror, err))
         return EXIT_INTERNAL
     end
 end

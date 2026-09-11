@@ -1,5 +1,8 @@
 """Small deterministic JSON writer/parser kept dependency-free for the CLI contract."""
 
+# Sorting object keys makes manifests and machine-readable results stable across
+# runs, which is useful for cache keys, golden files, and reproducible diffs.
+
 function json_escape(value::AbstractString)
     io = IOBuffer()
     for c in String(value)
@@ -75,6 +78,8 @@ mutable struct JSONParser
     position::Int
 end
 
+# Parsing is deliberately stateful: every helper advances one shared cursor and
+# the public parser rejects trailing data instead of silently ignoring it.
 JSONParser(text::AbstractString) = JSONParser(collect(String(text)), 1)
 
 function json_skip_space!(parser::JSONParser)

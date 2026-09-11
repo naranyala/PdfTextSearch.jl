@@ -7,9 +7,13 @@ struct QuerySpec
     regex::Bool
 end
 
+# Retrieval is intentionally two-stage: FTS narrows candidate pages, then Julia
+# performs exact semantics and evidence offsets on the stored page text.
 function parse_query(raw::AbstractString; literal=false, case_sensitive=false, regex=false)
     value = strip(String(raw))
     isempty(value) && probe_error(EXIT_USAGE, "search", "", "query is empty", recovery="provide a word or phrase")
+    # Keep quoted phrases separate from terms so phrases preserve adjacency and
+    # unquoted terms can retain AND semantics during candidate retrieval.
     phrases = String[]
     remaining = value
     for match_result in eachmatch(r"\"([^\"]+)\"", value)
@@ -55,6 +59,9 @@ function byte_to_char_position(text::AbstractString, byte_position::Int)
 end
 
 function regex_occurrences(text::AbstractString, pattern::AbstractString)
+    # Regex is a post-filter over extracted page text, never a raw SQL expression,
+    # so user patterns cannot alter the index query. Resource limits remain a
+    # separate hardening task.
     result = UnitRange{Int}[]
     expression = try Regex(String(pattern)) catch err
         probe_error(EXIT_USAGE, "search", pattern, "invalid regular expression: $(sprint(showerror, err))")
@@ -102,8 +109,17 @@ function snippet(text::AbstractString, range::UnitRange{Int}, context::Int)
     prefix * String(chars[start:stop]) * suffix
 end
 
+function original_match_range(original_text::AbstractString, range::UnitRange{Int}, case_sensitive::Bool)
+    case_sensitive && return range
+    mapping = normalize_with_map(original_text).mapping
+    last(range) - 1 <= length(mapping) || return nothing
+    first_source = first(mapping[first(range)])
+    last_source = last(mapping[last(range) - 1])
+    first_source:(last_source + 1)
+end
+
 function result_boxes(handle::IndexHandle, document_id::AbstractString, page_number::Int, range::UnitRange{Int})
-    rows = sqlite_json(handle.database, "SELECT start,stop,x0,y0,x1,y1 FROM spans WHERE document_id=$(sql_quote(document_id)) AND page_number=$(page_number) ORDER BY span_id"; action="search", target=handle.directory)
+    rows = sqlite_json(handle.database, "SELECT start,stop,x0,y0,x1,y1 FROM spans WHERE document_id=$(sql_quote(document_id)) AND page_number=$(page_number) ORDER BY span_id"; action="search", target=handle.directory, backend=handle.backend)
     result = Any[]
     for row in rows
         start = parse_int_or(row["start"], 0)
@@ -118,18 +134,19 @@ end
 
 function candidate_pages(handle::IndexHandle, spec::QuerySpec, page, page_range, limit::Int)
     where_clause = page_where(page, page_range)
+    # Literal/regex modes bypass FTS because their semantics are character-based.
     if spec.literal || spec.regex
-        return sqlite_json(handle.database, "SELECT p.document_id,p.page_number,p.text,p.original_text FROM pages p WHERE 1=1$(where_clause) ORDER BY p.page_number LIMIT $(limit)"; action="search", target=handle.directory)
+        return sqlite_json(handle.database, "SELECT p.document_id,p.page_number,p.text,p.original_text FROM pages p WHERE 1=1$(where_clause) ORDER BY p.page_number LIMIT $(limit)"; action="search", target=handle.directory, backend=handle.backend)
     end
     expression = fts_expression(spec)
     isempty(expression) && return Any[]
     query = "SELECT p.document_id,p.page_number,p.text,p.original_text FROM fts_pages f JOIN pages p ON p.document_id=f.document_id AND p.page_number=f.page_number WHERE fts_pages MATCH $(sql_quote(expression))$(where_clause) ORDER BY p.page_number LIMIT $(limit)"
-    rows = sqlite_json(handle.database, query; action="search", target=handle.directory)
+    rows = sqlite_json(handle.database, query; action="search", target=handle.directory, backend=handle.backend)
     if isempty(rows)
         # Punctuation and ligatures may be intentionally excluded by unicode61. A bounded
-        # substring fallback preserves correctness for those queries without reparsing PDFs.
+        # substring fallback preserves correctness without reparsing PDFs.
         fallback = normalize_text(spec.raw; casefold=!spec.case_sensitive)
-        rows = sqlite_json(handle.database, "SELECT p.document_id,p.page_number,p.text,p.original_text FROM pages p WHERE instr(p.text,$(sql_quote(fallback))) > 0$(where_clause) ORDER BY p.page_number LIMIT $(limit)"; action="search", target=handle.directory)
+        rows = sqlite_json(handle.database, "SELECT p.document_id,p.page_number,p.text,p.original_text FROM pages p WHERE instr(p.text,$(sql_quote(fallback))) > 0$(where_clause) ORDER BY p.page_number LIMIT $(limit)"; action="search", target=handle.directory, backend=handle.backend)
     end
     rows
 end
@@ -144,6 +161,8 @@ function search(handle::IndexHandle, query_text::AbstractString; page=nothing, p
         page = Int(page)
         page_range = nothing
     end
+    # Search never reopens the source PDF: all evidence comes from the validated
+    # derived index and its stored original text.
     rows = candidate_pages(handle, spec, page, page_range, limit)
     source = manifest_source(handle.manifest)
     document_id = String(dict_get(handle.manifest, "document_id", ""))
@@ -153,13 +172,15 @@ function search(handle::IndexHandle, query_text::AbstractString; page=nothing, p
         row_document = String(row["document_id"])
         row_document == document_id || continue
         page_number = Int(row["page_number"])
-        text = spec.case_sensitive ? String(row["original_text"]) : String(row["text"])
+        original_text = String(row["original_text"])
+        text = spec.case_sensitive ? original_text : String(row["text"])
         ranges = query_occurrences(text, spec)
         isempty(ranges) && continue
         # A multi-term query has AND semantics at the candidate-page stage; every
         # occurrence remains separately auditable in the result stream.
         for range in ranges
             match_text = text_from_chars(char_vector(text), first(range), last(range))
+            source_range = original_match_range(original_text, range, spec.case_sensitive)
             item = Dict{String,Any}(
                 "document" => basename(document_path),
                 "source_path" => document_path,
@@ -168,6 +189,11 @@ function search(handle::IndexHandle, query_text::AbstractString; page=nothing, p
                 "match" => Dict{String,Any}("start" => first(range), "stop" => last(range), "text" => match_text),
                 "snippet" => snippet(text, range, context),
             )
+            if source_range !== nothing
+                item["match"]["original_start"] = first(source_range)
+                item["match"]["original_stop"] = last(source_range)
+                item["match"]["original_text"] = text_from_chars(char_vector(original_text), first(source_range), last(source_range))
+            end
             boxes && (item["boxes"] = result_boxes(handle, row_document, page_number, range))
             explain && (item["explain"] = Dict{String,Any}(
                 "index" => handle.database,
@@ -182,6 +208,6 @@ function search(handle::IndexHandle, query_text::AbstractString; page=nothing, p
     result
 end
 
-function search(path::AbstractString, query_text::AbstractString; kwargs...)
-    search(open_index(path), query_text; kwargs...)
+function search(path::AbstractString, query_text::AbstractString; backend::IndexBackend=DEFAULT_INDEX_BACKEND, kwargs...)
+    search(open_index(path; backend=backend), query_text; kwargs...)
 end

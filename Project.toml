@@ -1,6 +1,6 @@
-name = "PDFProbe"
+name = "PdfTextSearch"
 uuid = "8d4d2c7f-5f1a-4c1c-9d5f-0c6f8a3bbf45"
-authors = ["PDFProbe contributors"]
+authors = ["PdfTextSearch contributors"]
 version = "0.1.0"
 
 [deps]

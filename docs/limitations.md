@@ -1,6 +1,6 @@
 # Limitations and safety notes
 
-PDFProbe is an MVP extraction and search pipeline, not yet a hardened general-purpose PDF forensics engine. The following limitations are intentional and tracked in [TODOS.md](../TODOS.md).
+PdfTextSearch.jl is an MVP extraction and search pipeline, not yet a hardened general-purpose PDF forensics engine. The following limitations are intentional and tracked in [TODOS.md](../TODOS.md).
 
 ## Capability limits
 
@@ -15,10 +15,10 @@ PDFProbe is an MVP extraction and search pipeline, not yet a hardened general-pu
 
 ## Safety model today
 
-- The source PDF is read-only from PDFProbe's perspective.
+- The source PDF is read-only from PdfTextSearch.jl's perspective.
 - Extraction refuses to overwrite an existing non-empty directory unless `--force` is explicit.
 - Forced extraction preserves the prior directory under a timestamped sibling before replacement.
-- External helper failures are surfaced as typed PDFProbe errors or non-zero exit codes.
+- External helper failures are surfaced as typed PdfTextSearch.jl errors or non-zero exit codes.
 - `status` checks source hashes so consumers can detect an index that no longer describes the current PDF.
 
 These safeguards do not make arbitrary PDFs safe to process without operational controls. The helper subprocesses do not yet have complete timeouts, cancellation, memory limits, page-count budgets, output quotas, or sandboxing. Process untrusted files in an isolated environment and set host-level resource limits where appropriate.

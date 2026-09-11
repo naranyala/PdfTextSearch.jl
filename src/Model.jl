@@ -1,9 +1,11 @@
-const ARTIFACT_SCHEMA_VERSION = 1
-const INDEX_SCHEMA_VERSION = 1
+const ARTIFACT_SCHEMA_VERSION = 2
+const INDEX_SCHEMA_VERSION = 2
 const PARSER_NAME = "poppler"
 const PARSER_VERSION = "0.1"
 const NORMALIZATION_VERSION = "1"
 
+# Version constants are written into manifests and indexes so a caller can
+# reject artifacts produced under incompatible parsing rules.
 struct BBox
     x0::Float64
     y0::Float64
@@ -16,11 +18,15 @@ struct Span
     page_number::Int
     start::Int
     stop::Int
+    original_start::Int
+    original_stop::Int
     text::String
     original_text::String
     bbox::Union{Nothing,BBox}
 end
 
+# `stop` is exclusive and all offsets are 1-based character positions. The
+# original pair lets search results point back through normalization changes.
 struct PageRecord
     document_id::String
     page_number::Int
@@ -37,6 +43,8 @@ struct PageRecord
     warnings::Vector{String}
 end
 
+# ExtractionPlan contains policy, not runtime state; it is safe to construct in
+# the host application before dispatching work to its own job manager.
 struct ExtractionPlan
     output::String
     include_boxes::Bool
@@ -44,20 +52,27 @@ struct ExtractionPlan
     strict::Bool
     force::Bool
     include_text_files::Bool
+    reuse::Bool
 end
 
 function ExtractionPlan(; output, include_boxes=true, pages=nothing, strict=false,
-                        force=false, include_text_files=true)
+                        force=false, include_text_files=true, reuse=false)
     selected = pages === nothing ? nothing : UnitRange{Int}(first(pages), last(pages))
     ExtractionPlan(String(output), Bool(include_boxes), selected, Bool(strict),
-                   Bool(force), Bool(include_text_files))
+                   Bool(force), Bool(include_text_files), Bool(reuse))
 end
 
+# IndexHandle carries the selected backend so query code never needs to know
+# whether storage is SQLite CLI, a native binding, or another implementation.
 struct IndexHandle
     directory::String
     database::String
     manifest::Dict{String,Any}
+    backend::IndexBackend
 end
+
+IndexHandle(directory::String, database::String, manifest::Dict{String,Any}) =
+    IndexHandle(directory, database, manifest, DEFAULT_INDEX_BACKEND)
 
 function bbox_dict(box::Union{Nothing,BBox})
     box === nothing && return nothing
@@ -70,6 +85,8 @@ function span_dict(span::Span)
         "page_number" => span.page_number,
         "start" => span.start,
         "stop" => span.stop,
+        "original_start" => span.original_start,
+        "original_stop" => span.original_stop,
         "text" => span.text,
         "original_text" => span.original_text,
         "bbox" => bbox_dict(span.bbox),

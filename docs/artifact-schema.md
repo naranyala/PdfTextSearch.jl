@@ -26,19 +26,27 @@ derived/report/
 
 | Field | Meaning |
 | --- | --- |
-| `schema_version` | Artifact schema identifier. |
+| `schema_version` | Artifact schema identifier; current value is `2`. |
+| `cache_key` | Hash of source bytes, parser/normalization versions, schema, and extraction options. |
 | `created_at` | UTC creation timestamp. |
-| `document_id` | Stable ID derived from the source path and source hash. |
+| `document_id` | Stable ID derived from the source hash. |
 | `source` | Source path, byte size, and SHA-256. |
 | `parser` | Parser/helper information and options. |
 | `normalization` | Text normalization policy and version. |
+| `extraction` | Extraction options such as boxes, strict mode, and text-file output. |
 | `page_count` | Number of selected extracted pages. |
 | `selected_pages` | Inclusive selected page numbers. |
 | `state` | Lifecycle state such as `extracted` or `fresh`. |
 | `index` | Index metadata and counts when an index exists. |
 | `warnings` | Non-fatal extraction or indexing warnings. |
 
-The source hash is the main freshness key. `status` recomputes it and compares it with both the manifest and index metadata.
+The source hash and `cache_key` are the main freshness keys. `status` recomputes the source hash and compares it with the manifest and index metadata; `cache_status` also validates extraction options before reuse.
+
+During extraction, an atomic directory lock is held at `derived/report.lock`
+with an `owner.json` record. A concurrent builder fails before touching the
+existing artifact; normal extraction removes the lock in a `finally` block.
+Hosts can inspect this state through `cache_status` or use the public lock
+helpers when coordinating additional work.
 
 ## Page records
 
@@ -63,7 +71,7 @@ The `text/page-XXXX.txt` files contain the normalized text in the same order as 
 
 `spans.jsonl` contains one record per extracted text span where the adapter can provide it. Current fields include `document_id`, `page_number`, `span_id`, `start`, `stop`, `text`, `original_text`, and optional `bbox` coordinates.
 
-Offsets use 1-based character indexing with an exclusive `stop`. Thus a span covering characters 1 through 4 is represented as `start: 1, stop: 5`. The current coordinate values are PDF point values emitted by the Poppler adapter; consumers should treat the coordinate convention as adapter-defined until the native parser contract is finalized.
+Offsets use 1-based character indexing with an exclusive `stop`. Thus a span covering characters 1 through 4 is represented as `start: 1, stop: 5`. `original_start` and `original_stop` use the same convention against the page's `original_text` representation. The current coordinate values are PDF point values emitted by the Poppler adapter; consumers should treat the coordinate convention as adapter-defined until the native parser contract is finalized.
 
 ## Inspection and build reports
 
