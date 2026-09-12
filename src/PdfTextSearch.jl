@@ -1,23 +1,23 @@
 """Local-first PDF extraction, indexing, and evidence-backed search."""
 module PdfTextSearch
 
-# Includes are ordered from shared contracts to higher-level workflows. Keeping
-# the CLI last makes every library operation available without invoking it.
-include("Errors.jl")
-include("ToolRunner.jl")
-include("IndexBackend.jl")
-include("Model.jl")
-include("Normalize.jl")
-include("Output.jl")
-include("PDFReader.jl")
-include("Providers.jl")
-include("API.jl")
-include("Extract.jl")
-include("IndexStore.jl")
-include("Query.jl")
-include("Unpack.jl")
-include("Benchmarks.jl")
-include("CLI.jl")
+# Includes are ordered by dependency rather than directory. Keeping the CLI
+# last makes every library operation available without invoking it.
+include("core/Errors.jl")
+include("adapters/ToolRunner.jl")
+include("storage/IndexBackend.jl")
+include("core/Models.jl")
+include("core/Normalize.jl")
+include("core/JSON.jl")
+include("adapters/PDFReader.jl")
+include("adapters/Providers.jl")
+include("workflows/API.jl")
+include("workflows/Extract.jl")
+include("storage/IndexStore.jl")
+include("workflows/Query.jl")
+include("workflows/Unpack.jl")
+include("benchmarks/Benchmarks.jl")
+include("cli/CLI.jl")
 
 export PdfTextSearchError, ExtractionPlan, IndexHandle, Span, BBox, PageRecord
 export ToolResult, ToolRunner, run_tool, IndexBackend, SQLiteCLIBackend

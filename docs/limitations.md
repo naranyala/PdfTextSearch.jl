@@ -1,6 +1,6 @@
 # Limitations and safety notes
 
-PdfTextSearch.jl is an MVP extraction and search pipeline, not yet a hardened general-purpose PDF forensics engine. The following limitations are intentional and tracked in [TODOS.md](../TODOS.md).
+PdfTextSearch.jl is a focused extraction and search pipeline; it is not a general-purpose PDF forensics engine. The following limitations are tracked in [TODOS.md](../TODOS.md).
 
 ## Capability limits
 
@@ -13,7 +13,7 @@ PdfTextSearch.jl is an MVP extraction and search pipeline, not yet a hardened ge
 - Source-to-normalized text maps and full reading-order metadata are not yet persisted.
 - CLI configuration, parallel jobs, quiet/verbose logging, command-specific help, and complete SIGINT handling are not finished.
 
-## Safety model today
+## Safety model
 
 - The source PDF is read-only from PdfTextSearch.jl's perspective.
 - Extraction refuses to overwrite an existing non-empty directory unless `--force` is explicit.

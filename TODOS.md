@@ -134,7 +134,7 @@ Acceptance: `index.sqlite` can be created, reopened, queried, and migrated on Li
 ### P0.2 Establish a real parser boundary and safety boundary
 
 - [ ] Evaluate maintained Julia PDF reader candidates against the fixture matrix and record the decision in an M0 benchmark/decision note.
-- [ ] Keep `PDFReader.jl` as the only parser-specific layer; expose page/object events, metadata, dimensions, rotation, text, and geometry through an adapter interface.
+- [ ] Keep `src/adapters/PDFReader.jl` as the only parser-specific layer; expose page/object events, metadata, dimensions, rotation, text, and geometry through an adapter interface.
 - [ ] Add process-boundary timeouts, cancellation, and bounded output handling for Poppler/native parser calls.
 - [ ] Enforce configurable page, object, text-byte, asset-byte/count, decompression, and wall-clock budgets.
 - [ ] Make tolerant mode produce an incomplete-but-labeled artifact with counters for skipped objects, truncation, and warnings; strict mode must fail only on configured fatal errors.

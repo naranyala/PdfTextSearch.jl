@@ -78,11 +78,11 @@ Offsets use 1-based character indexing with an exclusive `stop`. Thus a span cov
 - `inspect.json` stores the metadata, health checks, warnings, and optional page/object sections returned by `inspect`.
 - `build-report.json` records the last extraction or indexing operation, counts, duration, state, and warnings.
 
-These reports are useful for debugging and audit trails, but their complete versioned public schema is still a roadmap item.
+These reports are useful for debugging and audit trails. A complete versioned public schema for them is planned work; see [TODOS.md](../TODOS.md).
 
 ## SQLite index
 
-`index.sqlite` is an implementation artifact created by the `sqlite3` command-line client. The MVP creates tables for documents, pages, spans, assets, build events, and an FTS5 virtual table for page search.
+`index.sqlite` is an implementation artifact created by the `sqlite3` command-line client. The current schema creates tables for documents, pages, spans, assets, build events, and an FTS5 virtual table for page search.
 
 Consumers should use the CLI or the documented Julia API rather than depending directly on table names. A portable Julia SQLite binding, migrations, prepared statements, and a versioned schema are tracked in [TODOS.md](../TODOS.md).
 

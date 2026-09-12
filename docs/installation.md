@@ -30,7 +30,7 @@ pdfimages -v
 sqlite3 --version
 ```
 
-Install Poppler and SQLite using the package manager appropriate for the host operating system. Package names vary by distribution; the important part is that the commands above are on `PATH`.
+Install Poppler and SQLite using the package manager for the host operating system. Package names vary by distribution; the requirement is that the commands above are on `PATH`.
 
 ## Run from the checkout
 
@@ -58,4 +58,4 @@ Use shell single quotes around a query containing double quotes. The inner doubl
 - PdfTextSearch.jl does not modify the source PDF.
 - Output paths are created as needed, but an existing non-empty extraction directory is refused unless `extract --force` is used.
 - `extract --force` preserves the previous directory under a timestamped `.previous-*` sibling before writing the replacement.
-- The current subprocess boundary does not yet provide complete timeouts, cancellation, or resource budgets for hostile or unusually large PDFs. Review [limitations and safety notes](limitations.md) before processing untrusted input at scale.
+- The current subprocess boundary does not yet provide complete timeouts, cancellation, or resource budgets for untrusted or unusually large PDFs. Review [limitations and safety notes](limitations.md) before processing untrusted input at scale.

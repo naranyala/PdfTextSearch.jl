@@ -3,16 +3,25 @@
 ## Repository layout
 
 ```text
-bin/pdftextsearch      Checkout entry point
-src/                  Julia implementation modules
-test/runtests.jl      MVP integration and contract tests
-test/downstream/      Path-dependency integration smoke project
-docs/                 User and developer documentation
-TODOS.md              Prioritized implementation backlog
-Project.toml          Julia project metadata
+bin/pdftextsearch       Checkout entry point
+src/core/               Models, errors, normalization, and JSON utilities
+src/adapters/           Poppler, process, and optional-provider adapters
+src/storage/            Index backend interface and SQLite storage
+src/workflows/          Public extraction, search, cache, and unpack operations
+src/cli/                Command-line argument and output adapter
+src/benchmarks/         Warm-search benchmark helper
+test/runtests.jl        Test entry point (includes unit_*.jl + integration)
+test/unit_core.jl       Fast unit tests: normalization, JSON, models, API
+test/unit_query_cli.jl  Fast unit tests: query semantics, CLI parsing, exit codes
+test/unit_safety.jl     Fast safety tests: input validation, cache keys, locks
+test/unit_structure.jl  Structural guard: per-file line limit for src/ modules
+test/downstream/        Path-dependency integration smoke project
+docs/                   User and developer documentation
+TODOS.md                Prioritized implementation backlog
+Project.toml            Julia project metadata
 ```
 
-The runtime is split by responsibility: PDF helper invocation, typed models and errors, normalization, artifact output, indexing, querying, unpacking, benchmarks, and CLI dispatch. See [architecture.md](architecture.md) for the data flow.
+The runtime is split by responsibility: PDF helper invocation, typed models and errors, normalization, artifact output, indexing, querying, unpacking, benchmarks, and CLI dispatch. The directory names mirror those boundaries; the include order in `src/PdfTextSearch.jl` remains the dependency authority. See [architecture.md](architecture.md) for the data flow.
 
 ## Run tests
 
@@ -37,8 +46,8 @@ If the default Julia depot is not writable in a constrained environment, use a t
 JULIA_DEPOT_PATH=/tmp/pdftextsearch-julia julia --project=. test/runtests.jl
 ```
 
-The current suite is intentionally small. It covers tool timeout/cancellation,
-lock conflicts, CLI contracts, and a generated vertical slice, but does not
+The suite has fast unit layers for core, query/CLI, safety, and structure, plus integration coverage for tool timeout/cancellation,
+lock conflicts, CLI contracts, and a generated end-to-end workflow. It does not
 yet cover a committed corpus fixture matrix, malformed PDFs, bounded output,
 OCR, full concurrent-build stress, or cross-platform helper differences.
 
@@ -62,7 +71,7 @@ git diff --check
 git status --short
 ```
 
-Keep command examples aligned with `bin/pdftextsearch` and keep the artifact descriptions aligned with `src/Model.jl`, `src/Output.jl`, `src/IndexStore.jl`, and `src/Query.jl`.
+Keep command examples aligned with `bin/pdftextsearch` and keep the artifact descriptions aligned with `src/core/Models.jl`, `src/core/JSON.jl`, `src/storage/IndexStore.jl`, and `src/workflows/Query.jl`.
 
 ## Design constraints
 

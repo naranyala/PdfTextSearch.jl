@@ -1,6 +1,6 @@
 # Blueprint extraction
 
-The attached blueprint defines `pdftextsearch` as a private, local-first Julia CLI whose north-star result is a trustworthy answer to “where does this phrase occur?” with enough evidence to verify it.
+The requirements blueprint defines `pdftextsearch` as a private, local-first Julia CLI whose primary goal is a trustworthy answer to "where does this phrase occur?" with enough evidence to verify it.
 
 ## User-facing scope
 

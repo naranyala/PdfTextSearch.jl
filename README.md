@@ -2,7 +2,7 @@
 
 PdfTextSearch.jl is a local-first Julia CLI for inspecting PDFs, extracting deterministic text artifacts, indexing them with SQLite/FTS5, and returning evidence-backed search matches.
 
-This repository contains the first vertical slice from the software requirements blueprint. It favors an explicit artifact contract and replaceable boundaries so native parsing, richer inspection, OCR, and a custom index can be added without changing the core workflow.
+This repository implements the core workflow from the software requirements blueprint: an explicit artifact contract with replaceable boundaries, so native parsing, richer inspection, OCR, and a custom index can be added without changing the extraction-to-search workflow.
 
 ## Quick start
 
@@ -67,7 +67,7 @@ Run the repository test suite with:
 julia --project=. test/runtests.jl
 ```
 
-The current slice intentionally leaves OCR, low-level object inspection, attachment/font unpacking, corpus search, richer query filters, packaged installation, and a custom mmap index incomplete. See [`TODOS.md`](TODOS.md) for the prioritized backlog and [`docs/limitations.md`](docs/limitations.md) for operational caveats.
+The current release does not yet include OCR, low-level object inspection, attachment/font unpacking, corpus search, richer query filters, packaged installation, or a custom mmap index. See [`TODOS.md`](TODOS.md) for the prioritized backlog and [`docs/limitations.md`](docs/limitations.md) for operational caveats.
 
 ## Exit codes
 

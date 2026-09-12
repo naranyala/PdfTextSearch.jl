@@ -89,7 +89,7 @@ julia --project=. bin/pdftextsearch search derived/report 'C++' --literal
 julia --project=. bin/pdftextsearch search derived/report 'supply\\s+chain' --regex
 ```
 
-The MVP returns one result per matching page. Each result identifies the document, source path, page, match count, matched ranges, a context snippet, and optional boxes. Search is local to one extraction directory; corpus-wide search is planned.
+The current release returns one result per matching page. Each result identifies the document, source path, page, match count, matched ranges, a context snippet, and optional boxes. Search is local to one extraction directory; corpus-wide search is planned.
 
 ### `status`
 
@@ -132,4 +132,4 @@ julia --project=. bin/pdftextsearch doctor [--fixtures <directory>] [--json]
 
 ## Accepted but incomplete options
 
-The CLI parser accepts some global options for forward compatibility, including `--config`, `--jobs`, `--quiet`, and `--verbose`. Their behavior is not complete in the MVP; see [TODOS.md](../TODOS.md) before relying on them in automation.
+The CLI parser accepts some global options for forward compatibility, including `--config`, `--jobs`, `--quiet`, and `--verbose`. These options are accepted but their behavior is incomplete in the current release; see [TODOS.md](../TODOS.md) before relying on them in automation.

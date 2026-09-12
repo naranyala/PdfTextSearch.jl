@@ -4,6 +4,13 @@ using Printf
 include(joinpath(@__DIR__, "..", "src", "PdfTextSearch.jl"))
 using .PdfTextSearch
 
+# Fast, dependency-free unit layers run before the slower tool-boundary and
+# vertical-slice sets below.
+include(joinpath(@__DIR__, "unit_core.jl"))
+include(joinpath(@__DIR__, "unit_query_cli.jl"))
+include(joinpath(@__DIR__, "unit_safety.jl"))
+include(joinpath(@__DIR__, "unit_structure.jl"))
+
 @testset "normalization and JSON" begin
     @test PdfTextSearch.normalize_text("  Supply\u00a0chain  RESILIENCE ") == "supply chain resilience"
     @test PdfTextSearch.normalize_text("hyphen-\nbreak") == "hyphenbreak"
